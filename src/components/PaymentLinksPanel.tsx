@@ -1,16 +1,19 @@
-import { CircleAlert, Link2, Loader2, RotateCw } from 'lucide-react';
+import { CheckCircle2, CircleAlert, Link2, Loader2, RotateCw } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useNow } from '../hooks/useNow';
+import { formatINR } from '../lib/format';
 import { countByStatus, filterPaymentLinks, STATUS_FILTERS } from '../lib/status';
 import type { PaymentLink, StatusFilterValue } from '../types/paymentLink';
 import type { usePaymentLinks } from '../hooks/usePaymentLinks';
 import { PaymentLinksTable } from './PaymentLinksTable';
+import { RecordPaymentDialog } from './RecordPaymentDialog';
 import { StatusFilter } from './StatusFilter';
 
 interface PaymentLinksPanelProps {
   links: PaymentLink[];
   loadState: ReturnType<typeof usePaymentLinks>['loadState'];
   onRetry: () => void;
+  onRecordPayment: (linkId: string, amountPaise: number) => Promise<PaymentLink>;
 }
 
 function EmptyState({ icon, title, children }: { icon: ReactNode; title: string; children?: ReactNode }) {
@@ -23,8 +26,10 @@ function EmptyState({ icon, title, children }: { icon: ReactNode; title: string;
   );
 }
 
-export function PaymentLinksPanel({ links, loadState, onRetry }: PaymentLinksPanelProps) {
+export function PaymentLinksPanel({ links, loadState, onRetry, onRecordPayment }: PaymentLinksPanelProps) {
   const [filter, setFilter] = useState<StatusFilterValue>('all');
+  const [payingLink, setPayingLink] = useState<PaymentLink | null>(null);
+  const [recordedMessage, setRecordedMessage] = useState<string | null>(null);
   const now = useNow();
   const counts = countByStatus(links, now);
   const visibleLinks = filterPaymentLinks(links, filter, now);
@@ -73,7 +78,16 @@ export function PaymentLinksPanel({ links, loadState, onRetry }: PaymentLinksPan
       </EmptyState>
     );
   } else {
-    content = <PaymentLinksTable links={visibleLinks} now={now} />;
+    content = (
+      <PaymentLinksTable
+        links={visibleLinks}
+        now={now}
+        onRecordPayment={(link) => {
+          setRecordedMessage(null);
+          setPayingLink(link);
+        }}
+      />
+    );
   }
 
   return (
@@ -84,7 +98,28 @@ export function PaymentLinksPanel({ links, loadState, onRetry }: PaymentLinksPan
         </h2>
         <StatusFilter value={filter} counts={counts} onChange={setFilter} />
       </div>
+      <div aria-live="polite">
+        {recordedMessage && (
+          <p role="status" className="flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+            <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
+            {recordedMessage}
+          </p>
+        )}
+      </div>
       {content}
+      {payingLink && (
+        <RecordPaymentDialog
+          link={payingLink}
+          onRecord={onRecordPayment}
+          onRecorded={(updated, amountPaise) => {
+            setPayingLink(null);
+            setRecordedMessage(
+              `Payment of ${formatINR(amountPaise)} recorded for “${updated.description}”.`,
+            );
+          }}
+          onClose={() => setPayingLink(null)}
+        />
+      )}
     </section>
   );
 }

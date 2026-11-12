@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from 'yup';
 import { rupeesToPaise } from '../lib/format';
+import type { PaymentLink } from '../types/paymentLink';
 import {
   MESSAGES,
+  createRecordPaymentSchema,
   initialPaymentLinkFormValues,
   paymentLinkSchema,
   toCreatePaymentLinkInput,
@@ -18,6 +20,8 @@ const valid: PaymentLinkFormValues = {
   customerEmail: 'customer@example.com',
   customerPhone: '',
   expiresAt: '',
+  allowPartialPayments: false,
+  minFirstPayment: '',
 };
 
 /** Validates like Formik does (all errors) and returns the first error per field. */
@@ -126,6 +130,67 @@ describe('paymentLinkSchema', () => {
   });
 });
 
+describe('partial payments', () => {
+  it('ignores the minimum first payment when partial payments are off', async () => {
+    expect(await validate({ allowPartialPayments: false, minFirstPayment: 'garbage' })).toEqual({});
+  });
+
+  it.each([
+    ['', MESSAGES.minFirstRequired],
+    ['abc', MESSAGES.minFirstInvalid],
+    ['0', MESSAGES.minFirstPositive],
+    ['10.555', MESSAGES.amountDecimals],
+    ['1500.51', MESSAGES.minFirstAboveAmount],
+  ])('rejects minimum first payment %j when partial payments are on', async (minFirstPayment, message) => {
+    const errors = await validate({ allowPartialPayments: true, minFirstPayment });
+    expect(errors.minFirstPayment).toBe(message);
+  });
+
+  it.each(['0.01', '500', '1500.50'])('accepts minimum first payment %j (≤ amount ₹1500.50)', async (minFirstPayment) => {
+    expect(await validate({ allowPartialPayments: true, minFirstPayment })).toEqual({});
+  });
+
+  it('only compares against the amount once the amount is valid', async () => {
+    const errors = await validate({ amount: '', allowPartialPayments: true, minFirstPayment: '100' });
+    expect(errors.amount).toBe(MESSAGES.amountRequired);
+    expect(errors.minFirstPayment).toBeUndefined();
+  });
+});
+
+describe('createRecordPaymentSchema', () => {
+  const link: PaymentLink = {
+    id: 'plink_1',
+    amountPaise: 100_000,
+    description: 'Invoice',
+    customer: { email: 'a@example.com', phone: null },
+    allowPartialPayments: true,
+    minFirstPaymentPaise: 25_000,
+    amountPaidPaise: 0,
+    payments: [],
+    createdAt: '2026-11-12T09:00:00Z',
+    expiresAt: null,
+    paidAt: null,
+  };
+
+  async function paymentError(amount: string, target: PaymentLink = link) {
+    try {
+      await createRecordPaymentSchema(target).validate({ amount });
+      return undefined;
+    } catch (error) {
+      return (error as ValidationError).message;
+    }
+  }
+
+  it('applies format and business rules to the payment amount', async () => {
+    expect(await paymentError('')).toBe(MESSAGES.paymentRequired);
+    expect(await paymentError('1.234')).toBe(MESSAGES.amountDecimals);
+    expect(await paymentError('249.99')).toMatch(/at least ₹250\.00/);
+    expect(await paymentError('1000.01')).toMatch(/cannot exceed the amount due/);
+    expect(await paymentError('250')).toBeUndefined();
+    expect(await paymentError('1,000')).toBeUndefined();
+  });
+});
+
 describe('toCreatePaymentLinkInput', () => {
   it('normalises form values into the service input', () => {
     expect(
@@ -135,12 +200,22 @@ describe('toCreatePaymentLinkInput', () => {
         customerEmail: ' Customer@Example.com ',
         customerPhone: '098765-43210',
         expiresAt: '',
+        allowPartialPayments: false,
+        minFirstPayment: '999',
       }),
     ).toEqual({
       amountPaise: 150050,
       description: 'Invoice',
       customer: { email: 'customer@example.com', phone: '+919876543210' },
       expiresAt: null,
+      allowPartialPayments: false,
+      minFirstPaymentPaise: null,
     });
+  });
+
+  it('includes the minimum first payment in paise when partial payments are on', () => {
+    const input = toCreatePaymentLinkInput({ ...valid, allowPartialPayments: true, minFirstPayment: '250.5' });
+    expect(input.allowPartialPayments).toBe(true);
+    expect(input.minFirstPaymentPaise).toBe(25050);
   });
 });

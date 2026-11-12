@@ -4,7 +4,8 @@ import {
   normalizePhoneInput,
   rupeesToPaise,
 } from '../lib/format';
-import type { CreatePaymentLinkInput } from '../types/paymentLink';
+import { getPaymentAmountError } from '../lib/payments';
+import type { CreatePaymentLinkInput, PaymentLink } from '../types/paymentLink';
 
 export const MAX_AMOUNT_PAISE = 5_00_000 * 100;
 export const MAX_DESCRIPTION_LENGTH = 100;
@@ -17,6 +18,9 @@ export interface PaymentLinkFormValues {
   customerPhone: string;
   /** datetime-local value ("YYYY-MM-DDTHH:mm", local time) or "". */
   expiresAt: string;
+  allowPartialPayments: boolean;
+  /** Rupees; only validated/used when allowPartialPayments is true. */
+  minFirstPayment: string;
 }
 
 export const initialPaymentLinkFormValues: PaymentLinkFormValues = {
@@ -25,6 +29,8 @@ export const initialPaymentLinkFormValues: PaymentLinkFormValues = {
   customerEmail: '',
   customerPhone: '',
   expiresAt: '',
+  allowPartialPayments: false,
+  minFirstPayment: '',
 };
 
 export const MESSAGES = {
@@ -40,21 +46,55 @@ export const MESSAGES = {
   contactRequired: 'Enter a customer email or phone number',
   expiryInvalid: 'Enter a valid date and time',
   expiryPast: 'Expiry must be in the future',
+  minFirstRequired: 'Enter a minimum first payment',
+  minFirstInvalid: 'Enter a valid amount, e.g. 500 or 500.50',
+  minFirstPositive: 'Minimum first payment must be greater than ₹0',
+  minFirstAboveAmount: 'Minimum first payment cannot exceed the link amount',
+  paymentRequired: 'Enter the payment amount',
+  paymentInvalid: 'Enter a valid amount, e.g. 500 or 500.50',
 } as const;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 /** 10-digit Indian mobile number starting 6–9, optional +91 / 91 / 0 prefix. */
 const PHONE_PATTERN = /^(?:\+91|91|0)?[6-9]\d{9}$/;
 
+/** Format checks shared by every rupee field: required, numeric, max 2 decimals. */
+function getRupeeFormatError(
+  raw: string | undefined,
+  messages: { required: string; invalid: string },
+): string | null {
+  const value = normalizeAmountInput(raw ?? '');
+  if (!value) return messages.required;
+  if (!/^\d+(\.\d+)?$/.test(value)) return messages.invalid;
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) return MESSAGES.amountDecimals;
+  return null;
+}
+
 /** Returns the first applicable amount error, in a fixed, predictable order. */
 function getAmountError(raw: string | undefined): string | null {
-  const value = normalizeAmountInput(raw ?? '');
-  if (!value) return MESSAGES.amountRequired;
-  if (!/^\d+(\.\d+)?$/.test(value)) return MESSAGES.amountInvalid;
-  if (!/^\d+(\.\d{1,2})?$/.test(value)) return MESSAGES.amountDecimals;
-  const paise = rupeesToPaise(value);
+  const formatError = getRupeeFormatError(raw, {
+    required: MESSAGES.amountRequired,
+    invalid: MESSAGES.amountInvalid,
+  });
+  if (formatError) return formatError;
+  const paise = rupeesToPaise(raw ?? '');
   if (paise <= 0) return MESSAGES.amountPositive;
   if (paise > MAX_AMOUNT_PAISE) return MESSAGES.amountMax;
+  return null;
+}
+
+function getMinFirstPaymentError(raw: string | undefined, amountRaw: string | undefined): string | null {
+  const formatError = getRupeeFormatError(raw, {
+    required: MESSAGES.minFirstRequired,
+    invalid: MESSAGES.minFirstInvalid,
+  });
+  if (formatError) return formatError;
+  const paise = rupeesToPaise(raw ?? '');
+  if (paise <= 0) return MESSAGES.minFirstPositive;
+  // Only compare against the amount once the amount itself is valid.
+  if (!getAmountError(amountRaw) && paise > rupeesToPaise(amountRaw ?? '')) {
+    return MESSAGES.minFirstAboveAmount;
+  }
   return null;
 }
 
@@ -104,6 +144,15 @@ export const paymentLinkSchema = yup
           ? true
           : this.createError({ message: MESSAGES.expiryPast });
       }),
+    allowPartialPayments: yup.boolean().default(false),
+    minFirstPayment: yup
+      .string()
+      .default('')
+      .test('min-first-payment', function (value) {
+        if (!this.parent.allowPartialPayments) return true;
+        const message = getMinFirstPaymentError(value, this.parent.amount);
+        return message ? this.createError({ message }) : true;
+      }),
   })
   // Cross-field rule reported on a dedicated "customer" path for the fieldset.
   .test('contact', function (values) {
@@ -130,5 +179,28 @@ export function toCreatePaymentLinkInput(
       phone: phone ? `+91${phone.slice(-10)}` : null,
     },
     expiresAt: values.expiresAt ? new Date(values.expiresAt).toISOString() : null,
+    allowPartialPayments: values.allowPartialPayments,
+    minFirstPaymentPaise: values.allowPartialPayments ? rupeesToPaise(values.minFirstPayment) : null,
   };
+}
+
+export interface RecordPaymentFormValues {
+  amount: string;
+}
+
+/** Schema for recording a payment against a specific link (rules depend on the link). */
+export function createRecordPaymentSchema(link: PaymentLink) {
+  return yup.object({
+    amount: yup
+      .string()
+      .default('')
+      .test('payment-amount', function (value) {
+        const message =
+          getRupeeFormatError(value, {
+            required: MESSAGES.paymentRequired,
+            invalid: MESSAGES.paymentInvalid,
+          }) ?? getPaymentAmountError(link, rupeesToPaise(value ?? ''));
+        return message ? this.createError({ message }) : true;
+      }),
+  });
 }

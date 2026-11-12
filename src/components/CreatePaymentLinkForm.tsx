@@ -31,6 +31,7 @@ const FIELD_ORDER: [keyof PaymentLinkFormErrors, string][] = [
   ['customerEmail', 'customerEmail'],
   ['customerPhone', 'customerPhone'],
   ['expiresAt', 'expiresAt'],
+  ['minFirstPayment', 'minFirstPayment'],
 ];
 
 export function CreatePaymentLinkForm({ onCreate }: CreatePaymentLinkFormProps) {
@@ -175,6 +176,62 @@ export function CreatePaymentLinkForm({ onCreate }: CreatePaymentLinkFormProps) 
           />
         )}
       </FormField>
+
+      <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50/60 p-4">
+        <div className="flex items-start gap-3">
+          <input
+            id="allowPartialPayments"
+            type="checkbox"
+            checked={values.allowPartialPayments}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              void formik.setFieldValue('allowPartialPayments', checked);
+              if (!checked) {
+                void formik.setFieldValue('minFirstPayment', '', false);
+                void formik.setFieldTouched('minFirstPayment', false, false);
+              }
+            }}
+            aria-describedby="allowPartialPayments-help"
+            disabled={isSubmitting}
+            className="mt-0.5 size-4 rounded border-slate-300 accent-blue-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          />
+          <div>
+            <label htmlFor="allowPartialPayments" className="text-sm font-medium text-slate-700">
+              Allow partial payments
+            </label>
+            <p id="allowPartialPayments-help" className="text-xs text-slate-500">
+              Let the customer pay in instalments.
+            </p>
+          </div>
+        </div>
+
+        {values.allowPartialPayments && (
+          <FormField
+            id="minFirstPayment"
+            label="Minimum first payment"
+            error={fieldError('minFirstPayment')}
+            helpText="Must be more than ₹0 and no more than the amount."
+          >
+            {(aria) => (
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-slate-500">
+                  ₹
+                </span>
+                <input
+                  {...aria}
+                  {...formik.getFieldProps('minFirstPayment')}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder="0.00"
+                  disabled={isSubmitting}
+                  className={`${inputClassName} pl-7 tabular-nums`}
+                />
+              </div>
+            )}
+          </FormField>
+        )}
+      </div>
 
       <button
         type="submit"

@@ -3,7 +3,7 @@ import { PaymentLinksPanel } from './components/PaymentLinksPanel';
 import { usePaymentLinks } from './hooks/usePaymentLinks';
 
 export default function App() {
-  const { links, loadState, reload, create } = usePaymentLinks();
+  const { links, loadState, reload, create, recordPayment } = usePaymentLinks();
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -24,7 +24,7 @@ export default function App() {
           </p>
         </div>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
           <section aria-labelledby="create-link-heading" className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 id="create-link-heading" className="mb-4 text-base font-semibold text-slate-900">
               Create payment link
@@ -32,7 +32,12 @@ export default function App() {
             <CreatePaymentLinkForm onCreate={create} />
           </section>
 
-          <PaymentLinksPanel links={links} loadState={loadState} onRetry={reload} />
+          <PaymentLinksPanel
+            links={links}
+            loadState={loadState}
+            onRetry={reload}
+            onRecordPayment={recordPayment}
+          />
         </div>
       </main>
     </div>

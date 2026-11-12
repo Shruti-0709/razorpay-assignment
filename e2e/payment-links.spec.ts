@@ -5,7 +5,7 @@ test('create a payment link, then filter the list by status', async ({ page }) =
   await expect(page.getByRole('heading', { name: 'Payment Links', level: 1 })).toBeVisible();
 
   const rows = page.getByTestId('payment-link-row');
-  await expect(rows.first()).toBeVisible(); // seeded demo data loaded
+  await expect(page.getByText('No payment links yet')).toBeVisible(); // fresh browser storage
 
   // A unique description so the assertion can't match seeded data.
   const description = `E2E invoice ${Date.now()}`;
@@ -37,9 +37,8 @@ test('create a payment link, then filter the list by status', async ({ page }) =
 
   // Paid: the new (unpaid) link is filtered out.
   await filters.getByRole('button', { name: /^Paid/ }).click();
-  await expect(rows.first()).toBeVisible();
   await expect(newRow).toHaveCount(0);
-  for (const row of await rows.all()) await expect(row).toContainText('Paid');
+  await expect(page.getByText('No paid links')).toBeVisible();
 
   // All: back again.
   await filters.getByRole('button', { name: /^All/ }).click();

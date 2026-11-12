@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   createPaymentLink,
   getPaymentLinks,
+  recordPayment as recordPaymentRequest,
 } from '../services/paymentLinksService';
 import type { CreatePaymentLinkInput, PaymentLink } from '../types/paymentLink';
 
@@ -51,5 +52,12 @@ export function usePaymentLinks() {
     return link;
   }, []);
 
-  return { links, loadState, reload, create };
+  /** Records a payment and swaps in the updated link. Rejects so the dialog can show the error. */
+  const recordPayment = useCallback(async (linkId: string, amountPaise: number) => {
+    const updated = await recordPaymentRequest(linkId, amountPaise);
+    setLinks((current) => current.map((link) => (link.id === linkId ? updated : link)));
+    return updated;
+  }, []);
+
+  return { links, loadState, reload, create, recordPayment };
 }

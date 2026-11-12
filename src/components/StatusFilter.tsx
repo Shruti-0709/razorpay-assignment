@@ -12,7 +12,7 @@ export function StatusFilter({ value, counts, onChange }: StatusFilterProps) {
     <div
       role="group"
       aria-label="Filter by status"
-      className="inline-flex max-w-full overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-0.5"
+      className="inline-flex max-w-full flex-wrap gap-0.5 rounded-md border border-slate-200 bg-slate-50 p-0.5"
     >
       {STATUS_FILTERS.map((option) => {
         const selected = option.value === value;
